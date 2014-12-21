@@ -228,6 +228,9 @@ struct msm_fb_data_type {
 
 	u32 dcm_state;
 	struct list_head proc_list;
+#ifdef CONFIG_HUAWEI_LCD
+	struct delayed_work bkl_work;
+#endif
 };
 
 static inline void mdss_fb_update_notify_update(struct msm_fb_data_type *mfd)
@@ -251,11 +254,16 @@ static inline void mdss_fb_update_notify_update(struct msm_fb_data_type *mfd)
 
 int mdss_fb_get_phys_info(unsigned long *start, unsigned long *len, int fb_num);
 void mdss_fb_set_backlight(struct msm_fb_data_type *mfd, u32 bkl_lvl);
+/* solve panel probability can't turn on blacklight when calling */
+#ifndef CONFIG_HUAWEI_LCD
 void mdss_fb_update_backlight(struct msm_fb_data_type *mfd);
+
+#endif
 void mdss_fb_wait_for_fence(struct msm_sync_pt_data *sync_pt_data);
 void mdss_fb_signal_timeline(struct msm_sync_pt_data *sync_pt_data);
 struct sync_fence *mdss_fb_sync_get_fence(struct sw_sync_timeline *timeline,
 				const char *fence_name, int val);
+
 int mdss_fb_register_mdp_instance(struct msm_mdp_interface *mdp);
 int mdss_fb_dcm(struct msm_fb_data_type *mfd, int req_state);
 #endif /* MDSS_FB_H */

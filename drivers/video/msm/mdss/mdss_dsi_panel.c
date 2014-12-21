@@ -1,4 +1,5 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* recreat lcd dts in fc1 baseline */
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,6 +24,29 @@
 #include <linux/err.h>
 
 #include "mdss_dsi.h"
+#include "dsi_v2.h"
+
+#include <hw_lcd_debug.h>
+#include <misc/app_info.h>
+#include <linux/hw_lcd_common.h>
+int lcd_debug_mask = LCD_INFO;
+module_param_named(lcd_debug_mask, lcd_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
+#ifdef CONFIG_HUAWEI_LCD
+static struct sequence * lcd_init_table_debug = NULL;
+#endif
+static struct dsi_buf mdss_tx_buf;
+/* Delete panel_name and defined in mdss_panel_info struct */
+const struct sequence display_on[] =
+{
+	{0x29,MIPI_DCS_COMMAND,0},
+	{0x00,MIPI_TYPE_END,20},
+};
+const struct sequence display_off[] =
+{
+	{0x28,MIPI_DCS_COMMAND,0},
+	{0x00,MIPI_TYPE_END,20},
+};
+
 
 #define DT_CMD_HDR 6
 
@@ -108,7 +132,7 @@ u32 mdss_dsi_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0,
 
 	return 0;
 }
-
+#ifndef CONFIG_HUAWEI_LCD
 static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 			struct dsi_panel_cmds *pcmds)
 {
@@ -125,10 +149,8 @@ static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	cmdreq.rlen = 0;
 	cmdreq.cb = NULL;
-
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
-
 static char led_pwm1[2] = {0x51, 0x0};	/* DTYPE_DCS_WRITE1 */
 static struct dsi_cmd_desc backlight_cmd = {
 	{DTYPE_DCS_WRITE1, 1, 0, 0, 1, sizeof(led_pwm1)},
@@ -151,6 +173,41 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 	cmdreq.cb = NULL;
 
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+}
+#endif
+
+static void hw_panel_bias_en(struct mdss_panel_data *pdata, int enable)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+	
+	if (pdata == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return;
+	}
+
+	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+
+	if (!gpio_is_valid(ctrl_pdata->bias_enp_gpio)) {
+		pr_debug("%s:%d, bias enp gpio not configured\n",
+			   __func__, __LINE__);
+	}
+
+	if (!gpio_is_valid(ctrl_pdata->bias_enn_gpio)) {
+		pr_debug("%s:%d, bias enn gpio not configured\n",
+			   __func__, __LINE__);
+		return;
+	}
+	
+	if (gpio_is_valid(ctrl_pdata->bias_enp_gpio))
+	{
+		gpio_set_value((ctrl_pdata->bias_enp_gpio), enable);
+	}
+	
+	if (gpio_is_valid(ctrl_pdata->bias_enn_gpio))
+	{
+		gpio_set_value((ctrl_pdata->bias_enn_gpio), enable);
+	}
 }
 
 static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
@@ -195,7 +252,21 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	struct mdss_panel_info *pinfo = NULL;
-	int i, rc = 0;
+	/* temporary modify */
+#ifndef CONFIG_HUAWEI_LCD
+	int i;
+#endif
+// disable reset lcd when booting up
+#ifdef CONFIG_HUAWEI_LCD
+	static unsigned char first_time=BIT(1);
+	if(unlikely(first_time)&&pdata->panel_info.cont_splash_enabled &&( (enable==1)||(enable==0)))
+	{
+		first_time=first_time>>1;
+		pr_info("%s: continuous splash, so dont reset when booting up\n", __func__);
+		return;
+	}
+#endif
+
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -220,23 +291,40 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 	pinfo = &(ctrl_pdata->panel_data.panel_info);
 
 	if (enable) {
-		rc = mdss_dsi_request_gpios(ctrl_pdata);
-		if (rc) {
-			pr_err("gpio request failed\n");
-			return rc;
+#ifdef CONFIG_HUAWEI_LCD
+		/* enable bias gpuo before reset */
+		if (ctrl_pdata->panel_data.panel_info.bias_ic_enable)
+		{
+			hw_panel_bias_en(pdata,1);
+			msleep(40);
 		}
-		if (!pinfo->panel_power_on) {
-			if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
-				gpio_set_value((ctrl_pdata->disp_en_gpio), 1);
-
-			for (i = 0; i < pdata->panel_info.rst_seq_len; ++i) {
-				gpio_set_value((ctrl_pdata->rst_gpio),
-					pdata->panel_info.rst_seq[i]);
-				if (pdata->panel_info.rst_seq[++i])
-					usleep(pinfo->rst_seq[i] * 1000);
-			}
+		/* temporary modify */
+		gpio_set_value(ctrl_pdata->rst_gpio, 1);
+		mdelay(1);
+		gpio_set_value(ctrl_pdata->rst_gpio, 0);
+		msleep(20);
+		gpio_set_value(ctrl_pdata->rst_gpio, 1);
+		msleep(120);
+#else
+		for (i = 0; i < MDSS_DSI_RST_SEQ_LEN; ++i) {
+			gpio_set_value((ctrl_pdata->rst_gpio),
+				ctrl_pdata->rst_seq[i]);
+			msleep(ctrl_pdata->rst_seq[++i]);
 		}
+#endif
 
+
+		if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
+			gpio_set_value((ctrl_pdata->disp_en_gpio), 1);
+#ifndef CONFIG_HUAWEI_LCD
+		/* temporary modify */
+		for (i = 0; i < pdata->panel_info.rst_seq_len; ++i) {
+			gpio_set_value((ctrl_pdata->rst_gpio),
+				pdata->panel_info.rst_seq[i]);
+			if (pdata->panel_info.rst_seq[++i])
+				usleep(pdata->panel_info.rst_seq[i] * 1000);
+		}
+#endif
 		if (gpio_is_valid(ctrl_pdata->mode_gpio)) {
 			if (pinfo->mode_gpio_state == MODE_GPIO_HIGH)
 				gpio_set_value((ctrl_pdata->mode_gpio), 1);
@@ -252,12 +340,14 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 	} else {
 		if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
 			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
-			gpio_free(ctrl_pdata->disp_en_gpio);
+#ifdef CONFIG_HUAWEI_LCD
+		/* disable bias gpio after reset */
+		if (ctrl_pdata->panel_data.panel_info.bias_ic_enable)
+		{
+			mdelay(1);
+			hw_panel_bias_en(pdata,0);
 		}
-		gpio_set_value((ctrl_pdata->rst_gpio), 0);
-		gpio_free(ctrl_pdata->rst_gpio);
-		if (gpio_is_valid(ctrl_pdata->mode_gpio))
-			gpio_free(ctrl_pdata->mode_gpio);
+#endif
 	}
 	return rc;
 }
@@ -358,18 +448,41 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 			}
 			mdss_dsi_panel_bklt_dcs(sctrl, bl_level);
 		}
+		ctrl_pdata->dsi_bklt_dcs(ctrl_pdata, bl_level);
+
 		break;
 	default:
 		pr_err("%s: Unknown bl_ctrl configuration\n",
 			__func__);
 		break;
 	}
+#ifdef CONFIG_HUAWEI_LCD
+	LCD_LOG_DBG("%s: bl_level=%d\n", __func__, bl_level);
+#endif
 }
 
 static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 {
 	struct mipi_panel_info *mipi;
 	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+#ifdef CONFIG_HUAWEI_LCD
+	unsigned int para_num = 0;
+	boolean para_debug_flag = FALSE;
+#endif
+	// disable panel on lcd when booting up
+#ifdef CONFIG_HUAWEI_LCD
+	static unsigned char first_time=true;
+	if(unlikely(first_time)&&pdata->panel_info.cont_splash_enabled)
+	{
+		first_time=false;
+		if(!strncmp(pdata->panel_info.panel_name,"TIANMA_ILI9806C_FWVGA_VIDEO",strlen("TIANMA_ILI9806C_FWVGA_VIDEO")))
+		{
+			process_mipi_table(pdata,&mdss_tx_buf,display_on,ARRAY_SIZE(display_on));
+		}
+		LCD_LOG_INFO("%s: continuous splash, so dont download on_cmds when booting up\n", __func__);
+		return 0;
+	}
+#endif
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -382,8 +495,33 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 
 	pr_debug("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
+#ifndef CONFIG_HUAWEI_LCD
 	if (ctrl->on_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
+#else
+	para_debug_flag = lcd_debug_malloc_get_para( "lcd_init_table_debug",
+			(void**)&lcd_init_table_debug,&para_num);
+
+	/*check if file is opened successfully load the init code*/
+	if( (TRUE == para_debug_flag) && (NULL != lcd_init_table_debug))
+	{
+		process_mipi_table(pdata,&mdss_tx_buf,lcd_init_table_debug, para_num);
+
+	}
+	else
+	{
+		dsi_cmds_tx_v2(pdata, &mdss_tx_buf,
+					ctrl->on_cmds.cmds,
+					ctrl->on_cmds.cmd_cnt);
+	}
+
+	/*release the resources allocated by init code debugging*/
+	if((TRUE == para_debug_flag)&&(NULL != lcd_init_table_debug))
+	{
+		lcd_debug_free_para((void *)lcd_init_table_debug);
+	}
+	LCD_LOG_INFO("leave %s\n",__func__);
+#endif
 
 	pr_debug("%s:-\n", __func__);
 	return 0;
@@ -393,6 +531,20 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 {
 	struct mipi_panel_info *mipi;
 	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	// disable panel off lcd when booting up
+#ifdef CONFIG_HUAWEI_LCD
+	static unsigned char first_time=true;
+	if(unlikely(first_time)&&pdata->panel_info.cont_splash_enabled)
+	{
+		first_time=false;
+		if(!strncmp(pdata->panel_info.panel_name,"TIANMA_ILI9806C_FWVGA_VIDEO",strlen("TIANMA_ILI9806C_FWVGA_VIDEO")))
+		{
+			process_mipi_table(pdata,&mdss_tx_buf,display_off,ARRAY_SIZE(display_off));
+		}
+		LCD_LOG_INFO("%s: continuous splash, so dont download off_cmds when booting up\n", __func__);
+		return 0;
+	}
+#endif
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -405,57 +557,72 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	pr_debug("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
 	mipi  = &pdata->panel_info.mipi;
-
+#ifndef CONFIG_HUAWEI_LCD
 	if (ctrl->off_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds);
+#else
+	dsi_cmds_tx_v2(pdata, &mdss_tx_buf,
+					ctrl->off_cmds.cmds,
+					ctrl->off_cmds.cmd_cnt);
+
+	LCD_LOG_INFO("leave %s\n",__func__);
+#endif
 
 	pr_debug("%s:-\n", __func__);
 	return 0;
 }
 
-static void mdss_dsi_parse_lane_swap(struct device_node *np, char *dlane_swap)
+/* change the mipi transmit mode before send DCS cmds */
+#ifdef CONFIG_FB_AUTO_CABC
+/***************************************************************
+Function: dsi_panel_cabc_ctrl
+Description: send cabc cmds for cabc_cfg.mode
+Parameters:
+    struct mdss_panel_data *pdata: LCD panel information struct 
+    struct msmfb_cabc_config cabc_cfg: cabc configure para
+Return:0:success
+***************************************************************/
+static int mdss_dsi_panel_cabc_ctrl(struct mdss_panel_data *pdata,struct msmfb_cabc_config cabc_cfg)
 {
-	const char *data;
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 
-	*dlane_swap = DSI_LANE_MAP_0123;
-	data = of_get_property(np, "qcom,mdss-dsi-lane-map", NULL);
-	if (data) {
-		if (!strcmp(data, "lane_map_3012"))
-			*dlane_swap = DSI_LANE_MAP_3012;
-		else if (!strcmp(data, "lane_map_2301"))
-			*dlane_swap = DSI_LANE_MAP_2301;
-		else if (!strcmp(data, "lane_map_1230"))
-			*dlane_swap = DSI_LANE_MAP_1230;
-		else if (!strcmp(data, "lane_map_0321"))
-			*dlane_swap = DSI_LANE_MAP_0321;
-		else if (!strcmp(data, "lane_map_1032"))
-			*dlane_swap = DSI_LANE_MAP_1032;
-		else if (!strcmp(data, "lane_map_2103"))
-			*dlane_swap = DSI_LANE_MAP_2103;
-		else if (!strcmp(data, "lane_map_3210"))
-			*dlane_swap = DSI_LANE_MAP_3210;
+	if (pdata == NULL) {
+		LCD_LOG_ERR("%s: Invalid input data\n", __func__);
+		return -EINVAL;
 	}
+	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+	
+	dsi_set_tx_power_mode(0);
+
+	switch(cabc_cfg.mode)
+	{
+	/* when cabc is ui mode,then send ui cmds */
+		case CABC_MODE_UI:
+			if (ctrl_pdata->dsi_panel_cabc_ui_cmds.cmd_cnt)
+				dsi_cmds_tx_v2(pdata, &mdss_tx_buf,
+						ctrl_pdata->dsi_panel_cabc_ui_cmds.cmds,
+						ctrl_pdata->dsi_panel_cabc_ui_cmds.cmd_cnt);
+
+            break;
+        /* when cabc is moving or still mode,then send video cmds */
+        case CABC_MODE_MOVING:
+        case CABC_MODE_STILL:
+			if (ctrl_pdata->dsi_panel_cabc_video_cmds.cmd_cnt)
+				dsi_cmds_tx_v2(pdata, &mdss_tx_buf,
+						ctrl_pdata->dsi_panel_cabc_video_cmds.cmds,
+						ctrl_pdata->dsi_panel_cabc_video_cmds.cmd_cnt);
+            break;
+        default:
+            LCD_LOG_ERR("%s: invalid cabc mode: %d\n", __func__, cabc_cfg.mode);
+            break;
+    }
+    dsi_set_tx_power_mode(1);
+    LCD_LOG_INFO("exit %s ,CABC mode = %d \n",__func__,cabc_cfg.mode);
+    return 0;
 }
-
-static void mdss_dsi_parse_trigger(struct device_node *np, char *trigger,
-		char *trigger_key)
-{
-	const char *data;
-
-	*trigger = DSI_CMD_TRIGGER_SW;
-	data = of_get_property(np, trigger_key, NULL);
-	if (data) {
-		if (!strcmp(data, "none"))
-			*trigger = DSI_CMD_TRIGGER_NONE;
-		else if (!strcmp(data, "trigger_te"))
-			*trigger = DSI_CMD_TRIGGER_TE;
-		else if (!strcmp(data, "trigger_sw_seof"))
-			*trigger = DSI_CMD_TRIGGER_SW_SEOF;
-		else if (!strcmp(data, "trigger_sw_te"))
-			*trigger = DSI_CMD_TRIGGER_SW_TE;
-	}
-}
-
+#endif
+/* Delete code that we don't use */
 
 static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key)
@@ -539,7 +706,6 @@ exit_free:
 	kfree(buf);
 	return -ENOMEM;
 }
-
 
 static int mdss_panel_dt_get_dst_fmt(u32 bpp, char mipi_mode, u32 pixel_packing,
 				char *dst_format)
@@ -1001,11 +1167,16 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
 		"qcom,mdss-dsi-off-command", "qcom,mdss-dsi-off-command-state");
 
-	rc = mdss_dsi_parse_panel_features(np, ctrl_pdata);
-	if (rc) {
-		pr_err("%s: failed to parse panel features\n", __func__);
-		goto error;
-	}
+#ifdef CONFIG_FB_AUTO_CABC
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dsi_panel_cabc_ui_cmds,
+		"qcom,panel-cabc-ui-cmds", "qcom,cabc-ui-cmds-dsi-state");
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dsi_panel_cabc_video_cmds,
+		"qcom,panel-cabc-video-cmds", "qcom,cabc-video-cmds-dsi-state");
+#endif
+#ifdef CONFIG_HUAWEI_LCD
+	rc = of_property_read_u32(np, "huawei,delaytime-before-bl", &tmp);
+	pinfo->delaytime_before_bl = (!rc ? tmp : 0);
+#endif
 
 	return 0;
 
@@ -1017,6 +1188,7 @@ int mdss_dsi_panel_init(struct device_node *node,
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 	bool cmd_cfg_cont_splash)
 {
+#ifndef CONFIG_HUAWEI_LCD
 	int rc = 0;
 	static const char *panel_name;
 	struct mdss_panel_info *pinfo;
@@ -1035,21 +1207,86 @@ int mdss_dsi_panel_init(struct device_node *node,
 						__func__, __LINE__);
 	else
 		pr_info("%s: Panel Name = %s\n", __func__, panel_name);
+#else
+	int rc = 0;
+	bool cont_splash_enabled;
+	bool partial_update_enabled;
+	static const char *info_node = "lcd type";
+	struct mdss_panel_info *pinfo = &(ctrl_pdata->panel_data.panel_info);
+	bool bias_ic_enable = false;
 
+	if (!node) {
+		pr_err("%s: no panel node\n", __func__);
+		return -ENODEV;
+	}
+
+	pinfo->panel_name = of_get_property(node, "qcom,mdss-dsi-panel-name", NULL);
+	if (!pinfo->panel_name)
+		pr_info("%s:%d, Panel name not specified\n",
+						__func__, __LINE__);
+	else
+		pr_info("%s: Panel Name = %s\n", __func__, pinfo->panel_name);
+
+	rc = app_info_set(info_node, pinfo->panel_name);
+
+#endif
 	rc = mdss_panel_parse_dt(node, ctrl_pdata);
 	if (rc) {
 		pr_err("%s:%d panel dt parse failed\n", __func__, __LINE__);
 		return rc;
 	}
 
-	if (!cmd_cfg_cont_splash)
-		pinfo->cont_splash_enabled = false;
-	pr_info("%s: Continuous splash %s", __func__,
-		pinfo->cont_splash_enabled ? "enabled" : "disabled");
+	if (cmd_cfg_cont_splash)
+		cont_splash_enabled = of_property_read_bool(node,
+				"qcom,cont-splash-enabled");
+	else
+		cont_splash_enabled = false;
+	if (!cont_splash_enabled) {
+		pr_info("%s:%d Continuous splash flag not found.\n",
+				__func__, __LINE__);
+		ctrl_pdata->panel_data.panel_info.cont_splash_enabled = 0;
+	} else {
+		pr_info("%s:%d Continuous splash flag enabled.\n",
+				__func__, __LINE__);
+
+		ctrl_pdata->panel_data.panel_info.cont_splash_enabled = 1;
+	}
+	/* read bias ic enable flag from panel dtsi */
+#ifdef CONFIG_HUAWEI_LCD
+	bias_ic_enable = of_property_read_bool(node,
+					"huawei,bias-ic-enable");
+	if (!bias_ic_enable) {
+		pr_info("%s:%d bias gpio no need to config.\n",
+				__func__, __LINE__);
+		ctrl_pdata->panel_data.panel_info.bias_ic_enable = 0;
+	} else {
+		pr_info("%s:%d bias gpio need to config.\n",
+				__func__, __LINE__);
+
+		ctrl_pdata->panel_data.panel_info.bias_ic_enable = 1;
+	}
+#endif
+	mdss_dsi_buf_alloc(&mdss_tx_buf, ALIGN(DSI_BUF_SIZE, SZ_4K));
+
+	partial_update_enabled = of_property_read_bool(node,
+						"qcom,partial-update-enabled");
+	if (partial_update_enabled) {
+		pr_info("%s:%d Partial update enabled.\n", __func__, __LINE__);
+		ctrl_pdata->panel_data.panel_info.partial_update_enabled = 1;
+		ctrl_pdata->partial_update_fnc = mdss_dsi_panel_partial_update;
+	} else {
+		pr_info("%s:%d Partial update disabled.\n", __func__, __LINE__);
+		ctrl_pdata->panel_data.panel_info.partial_update_enabled = 0;
+		ctrl_pdata->partial_update_fnc = NULL;
+	}
 
 	ctrl_pdata->on = mdss_dsi_panel_on;
 	ctrl_pdata->off = mdss_dsi_panel_off;
 	ctrl_pdata->panel_data.set_backlight = mdss_dsi_panel_bl_ctrl;
-
+	
+#ifdef CONFIG_FB_AUTO_CABC
+	ctrl_pdata->panel_data.config_cabc = mdss_dsi_panel_cabc_ctrl;
+#endif
+	/* Delete code that we don't use */
 	return 0;
 }

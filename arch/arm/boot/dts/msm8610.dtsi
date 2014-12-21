@@ -44,6 +44,7 @@
 /include/ "msm8610-bus.dtsi"
 /include/ "msm8610-mdss.dtsi"
 /include/ "msm-rdbg.dtsi"
+/* delete 1 line */
 
 &soc {
 	#address-cells = <1>;
@@ -562,6 +563,7 @@
                 qcom,master-id = <86>;
 	};
 
+<<<<<<< HEAD
 
 	i2c@f9924000 { /* BLSP-1 QUP-3 */
 		cell-index = <2>;
@@ -580,6 +582,9 @@
 	};
 
 	i2c@f9925000 { /* BLSP-1 QUP-3 */
+=======
+	i2c3: i2c@f9925000 { /* BLSP-1 QUP-3 */
+>>>>>>> 1fda8fb... huawei: Import C8816 release on CAF
 		cell-index = <0>;
 		compatible = "qcom,i2c-qup";
 		#address-cells = <1>;
@@ -588,7 +593,7 @@
 		reg = <0xf9925000 0x1000>;
 		interrupt-names = "qup_err_intr";
 		interrupts = <0 97 0>;
-		qcom,i2c-bus-freq = <100000>;
+		qcom,i2c-bus-freq = <400000>;
                 qcom,i2c-src-freq = <19200000>;
                 qcom,sda-gpio = <&msmgpio 10 0>;
                 qcom,scl-gpio = <&msmgpio 11 0>;
@@ -925,7 +930,7 @@
 				<55 512 120000 1200000>,
 				<55 512 393600 3936000>;
 	};
-
+	/* solve start up slowly issue */
         qcom,msm-rng@f9bff000 {
                 compatible = "qcom,msm-rng";
                 reg = <0xf9bff000 0x200>;

@@ -24,6 +24,7 @@
 #include "mdp3_ctrl.h"
 #include "mdp3.h"
 #include "mdp3_ppp.h"
+#include <linux/hw_lcd_common.h>
 
 #define VSYNC_EXPIRE_TICK	4
 
@@ -550,6 +551,7 @@ static int mdp3_ctrl_dma_init(struct msm_fb_data_type *mfd,
 	return rc;
 }
 
+/* rollback to qcom fc baseline original code */
 static int mdp3_ctrl_on(struct msm_fb_data_type *mfd)
 {
 	int rc = 0;
