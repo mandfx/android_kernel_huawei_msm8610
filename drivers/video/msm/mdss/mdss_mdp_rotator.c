@@ -282,9 +282,8 @@ static int mdss_mdp_rotator_queue_sub(struct mdss_mdp_rotator_session *rot,
 		pr_err("unable to queue rot data\n");
 		goto error;
 	}
-	ATRACE_BEGIN("rotator_kickoff");
+
 	ret = mdss_mdp_rotator_kickoff(rot_ctl, rot, dst_data);
-	ATRACE_END("rotator_kickoff");
 
 	return ret;
 error:

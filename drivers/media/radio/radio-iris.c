@@ -2975,6 +2975,7 @@ static int iris_search(struct iris_device *radio, int on, int dir)
 	srch = radio->g_search_mode & SRCH_MODE;
 	saved_val = radio->search_on;
 	radio->search_on = on;
+
 	if (on) {
 		switch (srch) {
 		case SCAN_FOR_STRONG:
@@ -3786,13 +3787,25 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 		}
 		break;
 	case V4L2_CID_PRIVATE_IRIS_SRCHMODE:
-		radio->g_search_mode = ctrl->value;
-                #ifdef CONFIG_HUAWEI_RADIO
-                FMDBG("FM set search mode(radio->g_search_model = %d),line:%d.\n", radio->g_search_mode,__LINE__);
-                #endif
+		if (is_valid_srch_mode(ctrl->value)) {
+			radio->g_search_mode = ctrl->value;
+		} else {
+			FMDERR("%s: srch mode is not valid\n", __func__);
+			retval = -EINVAL;
+			goto END;
+		}
+     #ifdef CONFIG_HUAWEI_RADIO
+      FMDBG("FM set search mode(radio->g_search_model = %d),line:%d.\n", radio->g_search_mode,__LINE__);
+    #endif
 		break;
 	case V4L2_CID_PRIVATE_IRIS_SCANDWELL:
-		radio->g_scan_time = ctrl->value;
+		if (is_valid_scan_dwell_prd(ctrl->value)) {
+			radio->g_scan_time = ctrl->value;
+		} else {
+			FMDERR("%s: scandwell period is not valid\n", __func__);
+			retval = -EINVAL;
+			goto END;
+		}
                 #ifdef CONFIG_HUAWEI_RADIO
                 FMDBG("FM set scan time(radio->g_scan_time = %d),line:%d.\n", radio->g_scan_time,__LINE__);
                 #endif
@@ -3929,6 +3942,9 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 			FMDERR("%s: Pi is not valid\n", __func__);
 			goto END;
 		}
+        #ifdef CONFIG_HUAWEI_RADIO
+        FMDBG("set FM spacing (radio->recv_conf.ch_spacing = %d,retval = %d),line:%d.\n", radio->recv_conf.ch_spacing, retval,__LINE__);
+        #endif
 		break;
 	case V4L2_CID_PRIVATE_IRIS_SRCH_CNT:
 		if (is_valid_srch_station_cnt(ctrl->value)) {
@@ -3958,9 +3974,6 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 				goto END;
 			}
 		}
-        #ifdef CONFIG_HUAWEI_RADIO
-        FMDBG("set FM spacing (radio->recv_conf.ch_spacing = %d,retval = %d),line:%d.\n", radio->recv_conf.ch_spacing, retval,__LINE__);
-        #endif
 		break;
 	case V4L2_CID_PRIVATE_IRIS_EMPHASIS:
 		if (!is_valid_emphasis(ctrl->value)) {
@@ -3978,7 +3991,7 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
             #ifdef CONFIG_HUAWEI_RADIO
             FMDBG("set FM emphasis (radio->recv_conf.emphasis = %d,retval = %d),line:%d.\n", radio->recv_conf.emphasis, retval,__LINE__);
             #endif
-			if (retval < 0)
+			if (retval < 0) {
 				FMDERR("Error in setting emphasis");
 				radio->recv_conf.emphasis = saved_val;
 				goto END;
@@ -4114,6 +4127,10 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 		retval = hci_fm_rds_grps_process(
 				&radio->g_rds_grp_proc_ps,
 				radio->fm_hdev);
+		if (retval < 0) {
+			radio->g_rds_grp_proc_ps = saved_val;
+			goto END;
+		}
         #ifdef CONFIG_HUAWEI_RADIO
         FMDBG("set FM psall (radio->g_rds_grp_proc_ps = %d,retval = %d),line:%d.\n", radio->g_rds_grp_proc_ps, retval,__LINE__);
         #endif
@@ -4327,6 +4344,9 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 			retval = -EINVAL;
 			goto END;
 		}
+                #ifdef CONFIG_HUAWEI_RADIO
+                FMDBG("set SINR threshold (radio->ch_det_threshold.sinr = %d),line:%d.\n", radio->ch_det_threshold.sinr,__LINE__);
+                #endif
 		break;
 	case V4L2_CID_PRIVATE_INTF_HIGH_THRESHOLD:
 		if (!is_valid_intf_det_hgh_th(ctrl->value)) {
@@ -4349,6 +4369,9 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 			radio->ch_det_threshold.high_th = saved_val;
 			goto END;
 		}
+                #ifdef CONFIG_HUAWEI_RADIO
+                FMDBG("set SINR samples (radio->ch_det_threshold.sinr_samples = %d),line:%d.\n", radio->ch_det_threshold.sinr_samples,__LINE__);
+                #endif
 		break;
 
 	case V4L2_CID_PRIVATE_INTF_LOW_THRESHOLD:
@@ -4394,9 +4417,6 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 			radio->ch_det_threshold.sinr = saved_val;
 			goto END;
 		}
-                #ifdef CONFIG_HUAWEI_RADIO
-                FMDBG("set SINR threshold (radio->ch_det_threshold.sinr = %d),line:%d.\n", radio->ch_det_threshold.sinr,__LINE__);
-                #endif
 		break;
 
 	case V4L2_CID_PRIVATE_SINR_SAMPLES:
@@ -4420,9 +4440,6 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 			radio->ch_det_threshold.sinr_samples = saved_val;
 			goto END;
 		}
-                #ifdef CONFIG_HUAWEI_RADIO
-                FMDBG("set SINR samples (radio->ch_det_threshold.sinr_samples = %d),line:%d.\n", radio->ch_det_threshold.sinr_samples,__LINE__);
-                #endif
 		break;
 
 	case V4L2_CID_PRIVATE_IRIS_SRCH_ALGORITHM:
@@ -4826,8 +4843,6 @@ static int iris_vidioc_s_tuner(struct file *file, void *priv,
 		return -EINVAL;
 	}
 
-	if (tuner->index > 0)
-
     #ifdef CONFIG_HUAWEI_RADIO
     FMDBG("Enter %s ,line:%d\n", __func__,__LINE__);
     #endif
@@ -4916,8 +4931,6 @@ static int iris_vidioc_s_frequency(struct file *file, void *priv,
 		FMDERR(":radio is null");
 		return -EINVAL;
 	}
-	if (freq->type != V4L2_TUNER_RADIO)
-
     #ifdef CONFIG_HUAWEI_RADIO
     FMDBG("Enter %s, freq->frequency = %d,line:%d\n", __func__,freq->frequency,__LINE__);
     #endif

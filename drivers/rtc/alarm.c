@@ -612,7 +612,6 @@ update_timer:
 
 static int set_alarm_time_to_rtc(const long power_on_time)
 {
-#ifndef CONFIG_HUAWEI_FEATURE_POWEROFF_ALARM
 	struct timespec wall_time;
 	struct rtc_time rtc_time;
 	struct rtc_wkalrm alarm;
@@ -652,6 +651,55 @@ static int set_alarm_time_to_rtc(const long power_on_time)
 				alarm_time);
 
 	return 0;
+
+disable_alarm:
+	rtc_alarm_irq_enable(alarm_rtc_dev, 0);
+	return rc;
+}
+
+static void alarm_shutdown(struct platform_device *dev)
+{
+#ifndef CONFIG_HUAWEI_FEATURE_POWEROFF_ALARM
+	struct timespec wall_time;
+	struct rtc_time rtc_time;
+	struct rtc_wkalrm alarm;
+	unsigned long flags;
+	long rtc_secs, alarm_delta, alarm_time;
+	int rc;
+
+	spin_lock_irqsave(&alarm_slock, flags);
+
+	if (!power_on_alarm)
+		goto disable_alarm;
+
+	rtc_read_time(alarm_rtc_dev, &rtc_time);
+	getnstimeofday(&wall_time);
+	rtc_tm_to_time(&rtc_time, &rtc_secs);
+	alarm_delta = wall_time.tv_sec - rtc_secs;
+	alarm_time = power_on_alarm - alarm_delta;
+
+	/*
+	 * Substract ALARM_DELTA from actual alarm time
+	 * to powerup the device before actual alarm
+	 * expiration.
+	 */
+	if ((alarm_time - ALARM_DELTA) > rtc_secs)
+		alarm_time -= ALARM_DELTA;
+
+	if (alarm_time <= rtc_secs)
+		goto disable_alarm;
+
+	rtc_time_to_tm(alarm_time, &alarm.time);
+	alarm.enabled = 1;
+	rc = rtc_set_alarm(alarm_rtc_dev, &alarm);
+	if (rc)
+		pr_alarm(ERROR, "Unable to set power-on alarm\n");
+	else
+		pr_alarm(FLOW, "Power-on alarm set to %lu\n",
+				alarm_time);
+
+	spin_unlock_irqrestore(&alarm_slock, flags);
+	return;
 
 disable_alarm:
 	rtc_alarm_irq_enable(alarm_rtc_dev, 0);
@@ -718,6 +766,7 @@ static struct class_interface rtc_alarm_interface = {
 static struct platform_driver alarm_driver = {
 	.suspend = alarm_suspend,
 	.resume = alarm_resume,
+	.shutdown = alarm_shutdown,
 	.driver = {
 		.name = "alarm"
 	}

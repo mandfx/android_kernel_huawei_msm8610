@@ -355,13 +355,13 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
 #endif
 
 	if (!mqrq_cur->bounce_buf && !mqrq_prev->bounce_buf) {
-		unsigned int max_segs = host->max_segs;
+		/*unsigned int max_segs = host->max_segs;*/
 
 		blk_queue_bounce_limit(mq->queue, limit);
 		blk_queue_max_hw_sectors(mq->queue,
 			min(host->max_blk_count, host->max_req_size / 512));
 		blk_queue_max_segment_size(mq->queue, host->max_seg_size);
-retry:
+/*retry:*/
 		blk_queue_max_segments(mq->queue, host->max_segs);
 
 #ifdef CONFIG_HUAWEI_KERNEL
@@ -420,7 +420,7 @@ cur_sg_alloc_failed:
 #endif
 	}
 
-success:
+/*success:*/
 	sema_init(&mq->thread_sem, 1);
 
 	mq->thread = kthread_run(mmc_queue_thread, mq, "mmcqd/%d%s",

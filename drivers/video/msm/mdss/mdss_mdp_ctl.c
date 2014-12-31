@@ -2707,3 +2707,4 @@ int mdss_mdp_mixer_handoff(struct mdss_mdp_ctl *ctl, u32 num,
 
 	return rc;
 }
+

@@ -863,7 +863,7 @@ void mdss_fb_update_backlight_wq_handler(struct work_struct *work)
 		if ((pdata) && (pdata->set_backlight)) {
 			mfd->bl_level = mfd->unset_bl_level;
 			pdata->set_backlight(pdata, mfd->bl_level);
-			mfd->bl_level_old = mfd->unset_bl_level;
+			mfd->bl_level_scaled = mfd->unset_bl_level;
 			/* make sure bkl be set once in this function */
 			mfd->unset_bl_level = 0;
 			LCD_LOG_INFO("%s: set backlight to %d\n",__func__,mfd->bl_level);
@@ -1022,18 +1022,18 @@ static int mdss_fb_mmap(struct fb_info *info, struct vm_area_struct *vma)
 	u32 len = PAGE_ALIGN((start & ~PAGE_MASK) + info->fix.smem_len);
 	unsigned long off = vma->vm_pgoff << PAGE_SHIFT;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
-	int ret = 0;
+//	int ret = 0;
 
 	if (!start) {
 		pr_warn("No framebuffer memory is allocated.\n");
 		return -ENOMEM;
 	}
 
-	ret = mdss_fb_pan_idle(mfd);
+/*	ret = mdss_fb_pan_idle(mfd);
 	if (ret) {
 		pr_err("Shutdown pending. Aborting operation\n");
 		return ret;
-	}
+	}*/
 
 	/* Set VM flags. */
 	start &= PAGE_MASK;
@@ -1732,25 +1732,19 @@ static int __mdss_fb_sync_buf_done_callback(struct notifier_block *p,
  * hardware configuration. After this function returns it is safe to perform
  * software updates for next frame.
  */
-static int mdss_fb_pan_idle(struct msm_fb_data_type *mfd)
+static void mdss_fb_pan_idle(struct msm_fb_data_type *mfd)
 {
-	int ret = 0;
+	int ret;
 
 	ret = wait_event_timeout(mfd->idle_wait_q,
-			(!atomic_read(&mfd->commits_pending) ||
-			 mfd->shutdown_pending),
+			!atomic_read(&mfd->commits_pending),
 			msecs_to_jiffies(WAIT_DISP_OP_TIMEOUT));
 	if (!ret) {
 		pr_err("wait for idle timeout %d pending=%d\n",
 				ret, atomic_read(&mfd->commits_pending));
 
 		mdss_fb_signal_timeline(&mfd->mdp_sync_pt_data);
-	} else if (mfd->shutdown_pending) {
-		pr_debug("Shutdown signalled\n");
-		return -EPERM;
 	}
-
-	return 0;
 }
 
 
@@ -1771,11 +1765,11 @@ static int mdss_fb_pan_display_ex(struct fb_info *info,
 	if (var->yoffset > (info->var.yres_virtual - info->var.yres))
 		return -EINVAL;
 
-	ret = mdss_fb_pan_idle(mfd);
+/*	ret = mdss_fb_pan_idle(mfd);
 	if (ret) {
 		pr_err("Shutdown pending. Aborting operation\n");
 		return ret;
-	}
+	}*/
 
 	mutex_lock(&mfd->mdp_sync_pt_data.sync_mutex);
 	if (info->fix.xpanstep)
@@ -2063,11 +2057,11 @@ static int mdss_fb_set_par(struct fb_info *info)
 	int old_imgType;
 	int ret = 0;
 
-	ret = mdss_fb_pan_idle(mfd);
+/*	ret = mdss_fb_pan_idle(mfd);
 	if (ret) {
 		pr_err("Shutdown pending. Aborting operation\n");
 		return ret;
-	}
+	}*/
 
 	old_imgType = mfd->fb_imgType;
 	switch (var->bits_per_pixel) {
@@ -2448,15 +2442,15 @@ static int mdss_fb_ioctl(struct fb_info *info, unsigned int cmd,
 	mfd = (struct msm_fb_data_type *)info->par;
 	mdss_fb_power_setting_idle(mfd);
 	if ((cmd != MSMFB_VSYNC_CTRL) && (cmd != MSMFB_OVERLAY_VSYNC_CTRL) &&
-			(cmd != MSMFB_ASYNC_BLIT) && (cmd != MSMFB_BLIT) &&
-			(cmd != MSMFB_NOTIFY_UPDATE)) {
-		ret = mdss_fb_pan_idle(mfd);
+			(cmd != MSMFB_ASYNC_BLIT) && (cmd != MSMFB_BLIT))
+	      mdss_fb_pan_idle(mfd);
+	/*	ret = mdss_fb_pan_idle(mfd);
 		if (ret) {
 			pr_debug("Shutdown pending. Aborting operation %x\n",
 				cmd);
 			return ret;
 		}
-	}
+	}*/
 
 	switch (cmd) {
 	case MSMFB_CURSOR:

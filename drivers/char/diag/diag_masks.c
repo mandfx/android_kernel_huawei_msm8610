@@ -317,12 +317,11 @@ void diag_mask_update_fn(struct work_struct *work)
 		return;
 	}
 
-	diag_send_msg_mask_update(smd_info->ch, ALL_SSID, ALL_SSID,
+	diag_send_msg_mask_update(smd_info, ALL_SSID, ALL_SSID,
 						smd_info->peripheral);
-	diag_send_log_mask_update(smd_info->ch, ALL_EQUIP_ID);
-	diag_send_event_mask_update(smd_info->ch, diag_event_num_bytes);
+	diag_send_log_mask_update(smd_info, ALL_EQUIP_ID);
+	diag_send_event_mask_update(smd_info, diag_event_num_bytes);
 	diag_send_feature_mask_update(smd_info);
-
 
 	if (smd_info->notify_context == SMD_EVENT_OPEN)
 		diag_send_diag_mode_update_by_smd(smd_info,
